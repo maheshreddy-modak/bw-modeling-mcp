@@ -1,0 +1,10 @@
+.env
+.env.*
+node_modules
+dist
+tests
+docs
+bw75
+.git
+.github
+*.md
