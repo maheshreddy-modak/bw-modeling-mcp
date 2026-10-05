@@ -1,0 +1,19 @@
+# Self-hosted streamable HTTP server (src/http-local.ts).
+#
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# The .env next to this file is mounted read-only and loaded by Node itself, so quoted
+# values (e.g. a password in single quotes) work exactly as with `npm run start:http-local`.
+# It is never copied into the image.
+services:
+  bw-modeling-mcp:
+    build: .
+    image: bw-modeling-mcp:latest
+    container_name: bw-modeling-mcp
+    restart: unless-stopped
+    ports:
+      # Host port is configurable: BW_MCP_PORT=8081 docker compose up -d
+      - "${BW_MCP_PORT:-8080}:8080"
+    volumes:
+      - ./.env:/app/.env:ro

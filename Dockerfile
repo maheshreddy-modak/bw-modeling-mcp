@@ -1,9 +1,8 @@
 # Self-hosted streamable HTTP server (src/http-local.ts).
 #
-# Credentials are never baked into the image. Mount the .env at run time:
-#   docker build -t bw-modeling-mcp .
-#   docker run -d --name bw-mcp -p 127.0.0.1:8080:8080 \
-#     -v "$PWD/.env:/app/.env:ro" bw-modeling-mcp
+# Credentials are never baked into the image; the .env is mounted at /app/.env at run time.
+# Run with compose (see docker-compose.yml):
+#   docker compose up -d --build
 # Node loads the mounted file itself (--env-file-if-exists), so quoted values keep
 # working; `docker run --env-file` would pass the quotes through literally.
 
