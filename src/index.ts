@@ -25,7 +25,7 @@ import {
 } from './platform.js';
 import { bwGetAdso, bwCreateAdso, FieldDef, bwUpdateAdso, bwUpdateAdsoAddPureField, bwUpdateAdsoSettings, AdsoSettings, bwUpdateAdsoManageKeys, bwUpdateAdsoFieldProperties, FieldProperties } from './tools/adso.js';
 import { bwGetInfoObject, bwCreateInfoObject, bwUpdateInfoObject, AttributeDef } from './tools/infoobject.js';
-import { bwGetTransformation, bwUpdateTransformation, bwCreateTransformation, bwSetTransformationRuntime, bwSetTransformationRoutine, bwDeleteTransformationRoutine, bwSetTransformationRoutineFields, bwSetTransformationExpertRoutine, type RuleConversion } from './tools/transformation.js';
+import { bwGetTransformation, bwGetTransformationRoutine, bwUpdateTransformation, bwCreateTransformation, bwSetTransformationRuntime, bwSetTransformationRoutine, bwDeleteTransformationRoutine, bwSetTransformationRoutineFields, bwSetTransformationExpertRoutine, type RuleConversion } from './tools/transformation.js';
 import { bwActivate } from './tools/activation.js';
 import { bwSystemProfile } from './tools/system_profile.js';
 import { bwReadMetadataTables } from './tools/metadata_tables.js';
@@ -842,6 +842,33 @@ const TOOL_DEFINITIONS = [
             type: 'string',
             enum: ['text', 'raw'],
             description: 'Output format. "text" (default): compact human-readable summary. "raw": raw XML from BW.',
+          },
+        },
+        required: ['transformation_name'],
+      },
+    },
+    {
+      name: 'bw_get_transformation_routine',
+      description:
+        'Read the code of a Transformation\'s routines — start, end, expert and field routines, ABAP or AMDP (SQLScript). ' +
+        'Returns each routine\'s METHOD … ENDMETHOD block from the generated /BIC/<id>_M class (latest saved version), ' +
+        'plus the routines\' global declarations when any are written. ' +
+        'bw_get_transformation only names the class and method; this returns the code itself.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          transformation_name: {
+            type: 'string',
+            description: 'Transformation name (UUID-like key, e.g. "TRFN_UUID_KEY").',
+          },
+          routine: {
+            type: 'string',
+            enum: ['all', 'start', 'end', 'expert', 'field'],
+            description: 'Which routines to return. Default "all".',
+          },
+          full_class: {
+            type: 'boolean',
+            description: 'Return the whole generated class source instead of the routine methods. Default false.',
           },
         },
         required: ['transformation_name'],
@@ -5528,6 +5555,15 @@ async function handleToolCall(
           client,
           args?.transformation_name as string,
           args?.format as 'text' | 'raw' | undefined ?? 'text',
+        );
+        break;
+
+      case 'bw_get_transformation_routine':
+        text = await bwGetTransformationRoutine(
+          client,
+          args?.transformation_name as string,
+          (args?.routine as 'all' | 'start' | 'end' | 'expert' | 'field' | undefined) ?? 'all',
+          args?.full_class === true,
         );
         break;
 

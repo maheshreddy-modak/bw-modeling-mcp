@@ -230,6 +230,7 @@ async function detect(client: BwClient): Promise<PlatformProfile> {
 const COLLECTION_NEEDS: Record<string, string[]> = {
   // Transformations — no REST resource on classic; BWMT opens the embedded SAP GUI there.
   bw_get_transformation: ['trfn'],
+  bw_get_transformation_routine: ['trfn'],
   bw_create_transformation: ['trfn'],
   bw_update_transformation: ['trfn'],
   bw_set_transformation_runtime: ['trfn'],

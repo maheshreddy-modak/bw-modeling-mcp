@@ -1,6 +1,6 @@
 # Tools Reference
 
-Every tool the server exposes — 108 in total — with what it does and the parameters that matter.
+Every tool the server exposes — 109 in total — with what it does and the parameters that matter.
 Tools marked _(Read only)_ change nothing in BW; everything else writes, activates, runs, or unlocks.
 A writing tool refuses a parameter it does not declare and names the ones it takes, so a misspelt
 parameter cannot be reported as applied.
@@ -152,6 +152,9 @@ Update an existing InfoSource — fields and description.
 
 ### `bw_get_transformation`
 Read a Transformation structure including all field mapping rules, routines, source, and target. A rule into a target key figure shows its aggregation type (`{AGGREGATION: SUM}`, `MOV`, …); on a classic release `bw_read_metadata_tables` with `object_type="TRFN"` shows it the same way. Transformation names are UUID-like keys — use `bw_xref` on the target aDSO to find them.
+
+### `bw_get_transformation_routine`
+Read the code of a Transformation's routines — start, end, expert and field routines, in ABAP or AMDP (SQLScript). Returns each routine's `METHOD … ENDMETHOD.` block from the generated `/BIC/<id>_M` class (working area, the latest saved version), labelled with its kind, the target fields of a field routine, and its language, followed by the routines' global declarations when any are written. `routine` narrows to one kind; `full_class=true` returns the whole class. `bw_get_transformation` only names the class and method, and `bw_read_metadata_tables` returns ABAP routine code only — an AMDP routine is readable here. Requires ADT authorization.
 
 ### `bw_create_transformation`
 Create a new Transformation. Supports all source types (aDSO, InfoSource, DataSource/RSDS) and all target types (aDSO). For InfoObject (`IOBJ`) sources or targets, set `source_object_subtype` / `target_object_subtype` to select the facet — `TEXT` (text table), `ATTR` (attributes / master data), or `HIER` (hierarchy). Can copy structure from an existing Transformation.

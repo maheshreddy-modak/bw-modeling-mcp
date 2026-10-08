@@ -233,6 +233,120 @@ export async function bwGetTransformation(
   return summarizeTransformation(transformationName.toUpperCase(), status, ts, xml);
 }
 
+export type RoutineKind = 'start' | 'end' | 'expert' | 'field';
+
+export interface RoutineRef {
+  kind: RoutineKind;
+  className: string;
+  methodName: string;
+  /** Target fields of the rule — what a field routine fills. */
+  targets: string[];
+}
+
+/**
+ * Every routine a transformation XML references, with the generated class and method that
+ * hold its code. Start/end/expert routines are rule groups with a `routinetype`; a field
+ * routine is any other rule whose step carries a class.
+ */
+export function listTransformationRoutines(xml: string): RoutineRef[] {
+  const refs: RoutineRef[] = [];
+  const seen = new Set<string>();
+  for (const rm of xml.matchAll(/<rule\b([^>]*)>([\s\S]*?)<\/rule>/g)) {
+    const stepAttrs = rm[2].match(/<step\b([^>]*)/)?.[1] ?? '';
+    const className = stepAttrs.match(/classNameM="([^"]*)"/)?.[1] ?? '';
+    const methodName = stepAttrs.match(/methodNameM="([^"]*)"/)?.[1] ?? '';
+    if (!className || !methodName) continue;
+    const key = `${className}.${methodName}`.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const routinetype = (rm[1].match(/routinetype="([^"]*)"/)?.[1] ?? '').toUpperCase();
+    const kind: RoutineKind =
+      routinetype === 'START' ? 'start' : routinetype === 'END' ? 'end' : routinetype === 'EXPERT' ? 'expert' : 'field';
+    const targets = [...rm[2].matchAll(/elementRef>#\/\/\/target\/[^/]+\/([^<]+)<\/elementRef>/g)].map((m) => m[1]);
+    refs.push({ kind, className, methodName, targets });
+  }
+  return refs;
+}
+
+/** The `METHOD <name> … ENDMETHOD.` block of a class source, or null when absent. */
+export function extractMethodBlock(classSource: string, methodName: string): string | null {
+  const escaped = methodName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  return classSource.match(new RegExp(`^[ \\t]*METHOD\\s+${escaped}\\b[\\s\\S]*?ENDMETHOD\\s*\\.`, 'im'))?.[0] ?? null;
+}
+
+/**
+ * The user-written parts of the routines' global areas — declarations shared across data
+ * packages, which sit in the class definition rather than in any method. Empty when only
+ * the generated placeholder is there.
+ */
+export function extractGlobalAreas(classSource: string): string[] {
+  const areas: string[] = [];
+  for (const m of classSource.matchAll(/\*{4}\s*begin of global area[^\n]*\n([\s\S]*?)\n[^\n]*\*{4}\s*end of global area/gi)) {
+    const body = m[1].trim();
+    const meaningful = body
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('"') && !l.startsWith('*') && l !== '... "insert your code here');
+    if (meaningful.length) areas.push(body);
+  }
+  return areas;
+}
+
+/**
+ * bw_get_transformation_routine — read the code of a transformation's routines.
+ *
+ * bw_get_transformation names the generated class and method of each routine but not their
+ * code, and the metadata tables hold only ABAP routine code, never AMDP. The code itself is
+ * in the generated `/BIC/<id>_M` class, read here through ADT (working area, i.e. the latest
+ * saved version) — one class fetch however many routines it holds.
+ */
+export async function bwGetTransformationRoutine(
+  client: BwClient,
+  transformationName: string,
+  routine: RoutineKind | 'all' = 'all',
+  fullClass = false,
+): Promise<string> {
+  const trfnUpper = transformationName.toUpperCase();
+  const { body: xml } = await freshReadInactive(transformationName.toLowerCase());
+  const all = listTransformationRoutines(xml);
+  const wanted = routine === 'all' ? all : all.filter((r) => r.kind === routine);
+  if (!wanted.length) {
+    const present = all.length ? all.map((r) => r.kind).join(', ') : 'none';
+    return `Transformation ${trfnUpper} has no ${routine === 'all' ? '' : routine + ' '}routine (routines present: ${present}).`;
+  }
+
+  const sources = new Map<string, string | null>();
+  for (const r of wanted) {
+    if (!sources.has(r.className)) {
+      sources.set(r.className, await client.adtGetSource(encodeURIComponent(r.className).toLowerCase()));
+    }
+  }
+
+  const lines: string[] = [`Transformation: ${trfnUpper}`, 'Source: generated class, working area (latest saved version)'];
+  for (const [className, source] of sources) {
+    if (source === null) {
+      lines.push('', `Class ${className} does not exist yet — activate the transformation once so BW generates it.`);
+      continue;
+    }
+    if (fullClass) {
+      lines.push('', `── Class ${className} ──`, source.trimEnd());
+      continue;
+    }
+    for (const r of wanted.filter((w) => w.className === className)) {
+      const block = extractMethodBlock(source, r.methodName);
+      const language = block && /BY\s+DATABASE\s+PROCEDURE/i.test(block) ? 'SQLScript (AMDP)' : 'ABAP';
+      const label = r.kind === 'field' ? `Field routine → ${r.targets.join(', ') || '(no target)'}` : `${r.kind.toUpperCase()} routine`;
+      lines.push('', `── ${label} — ${className}=>${r.methodName} — ${language} ──`);
+      lines.push(block ?? `(method ${r.methodName} not found in the class source)`);
+    }
+    const globals = extractGlobalAreas(source);
+    if (globals.length) {
+      lines.push('', `── Global declarations (${className}) ──`, ...globals);
+    }
+  }
+  return lines.join('\n');
+}
+
 /**
  * Parse the transformation XML and return a compact human-readable summary.
  * Extracts: source/target, routine info, and per-field mapping rules.
@@ -296,8 +410,8 @@ function summarizeTransformation(
   lines.push(`  expertRoutine: ${expertRef || '(none)'}`);
 
   if (startRef || endRef || expertRef) {
-    lines.push(`  NOTE: to read routine code, parse "ClassName.MethodName" from the path above`);
-    lines.push(`        and call GetSource(object_type="CLAS", name=ClassName, method=MethodName).`);
+    lines.push(`  NOTE: to read routine code, call bw_get_transformation_routine with this`);
+    lines.push(`        transformation name (or GetSource on the class with an ADT MCP server).`);
     lines.push(`        Never read the ABAP Program listed in the header — it contains the full`);
     lines.push(`        generated class (~5000 lines) and will exceed context limits.`);
     // Buffers and types a routine shares across data packages are declared outside the
